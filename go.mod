@@ -1,3 +1,3 @@
 module kulturaGo/events-service
 
-go 1.23.6
+go 1.23.3
