@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS export_cursors;
+DROP TABLE IF EXISTS events;
