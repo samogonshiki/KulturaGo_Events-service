@@ -50,6 +50,12 @@ dc-up:
 dc-dw:
 	docker-compose down
 
+migrat_db:
+	docker exec -i kulturago_events-service-postgres-1 psql \
+          -U root \
+          -d postgres \
+          < ./db/migrations/0001_init.up.sql
+
 test: export LOG_LEVEL=debug
 test: build
 	go test ./... -v
