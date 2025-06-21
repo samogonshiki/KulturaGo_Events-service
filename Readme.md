@@ -37,5 +37,28 @@ events-service/
 └── go.mod
 ```
 
+```
+[Postgres] --batched-fetch--> [Exporter] --produce--> [Kafka topic: events.public]
+     ^                                              |
+     |                                              v
+[Redis] <--persist cursor----------------------------+
+```
+
+## Команды для makefile
+
+- локально (development)
+```shell
+make migrate-up
+```
+- откатить на один шаг
+```shell
+make migrate-down
+```
+
+- выполнить миграции в контейнере stage/prod
+```shell
+GOOSE_ENV=production DATABASE_URL="postgres://user:pass@postgres:5432/prod?sslmode=disable" \
+make migrate-up
+```
 
 **by Finnik**
