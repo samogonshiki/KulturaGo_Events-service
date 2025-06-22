@@ -1,11 +1,11 @@
 package routes
 
 import (
+	handlerhttp "kulturaGo/events-service/internal/handler"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	handlerhttp "kulturaGo/events-service/internal/handler/http"
 )
 
 func NewRoutes(event *handlerhttp.EventHandler) chi.Router {
