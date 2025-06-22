@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	handlerHTTP "kulturaGo/events-service/internal/handler/http"
+	handlerhttp "kulturaGo/events-service/internal/handler/http"
 	rt "kulturaGo/events-service/internal/handler/routes"
 	"kulturaGo/events-service/internal/kafka"
 	lg "kulturaGo/events-service/internal/logger"
@@ -26,6 +26,7 @@ func Run() {
 	dbURL := mustEnv("DATABASE_URL")
 	kafkaBrokers := strings.Split(mustEnv("KAFKA_BROKERS"), ",")
 	kafkaTopic := mustEnv("KAFKA_TOPIC")
+
 	exportEvery := durationEnv("EXPORT_INTERVAL", 5*time.Second)
 	batchSize := intEnv("EXPORT_BATCH_SIZE", 500)
 
@@ -39,10 +40,11 @@ func Run() {
 	defer prod.Close()
 
 	repo := postgres.NewEventRepository(db)
-	handler := handlerHTTP.NewEventHandler(repo)
+	cursorRepo := postgres.NewCursorRepository(db)
+
+	handler := handlerhttp.NewEventHandler(repo)
 	router := rt.NewRoutes(handler)
 	server := &http.Server{Addr: ":8090", Handler: router}
-	cursorRepo := postgres.NewCursorRepository(db)
 
 	exp := &usecase.Exporter{
 		Repo:       repo,
@@ -53,7 +55,11 @@ func Run() {
 		Logger:     lg.Log,
 		CursorRepo: cursorRepo,
 	}
-	deact := &scheduler.Deactivator{Repo: repo, Interval: 5 * time.Minute, Logger: lg.Log}
+	deact := &scheduler.Deactivator{
+		Repo:     repo,
+		Interval: 5 * time.Minute,
+		Logger:   lg.Log,
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -81,6 +87,7 @@ func mustEnv(k string) string {
 	lg.Log.Fatalf("env %s required", k)
 	return ""
 }
+
 func durationEnv(k string, def time.Duration) time.Duration {
 	if v := os.Getenv(k); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -89,6 +96,7 @@ func durationEnv(k string, def time.Duration) time.Duration {
 	}
 	return def
 }
+
 func intEnv(k string, def int) int {
 	if v := os.Getenv(k); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
