@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"kulturaGo/events-service/internal/domain"
+	"kulturaGo/events-service/internal/slugger"
 	"time"
 )
 
@@ -22,6 +23,25 @@ WHERE is_active = true
 ORDER BY starts_at
 LIMIT $1 OFFSET $2
 `
+
+func (r *EventRepository) Create(ctx context.Context, ev *domain.Event) error {
+	s, err := slugger.Generate(ctx, r.db, ev.Title)
+	if err != nil {
+		return err
+	}
+	ev.Slug = s
+
+	const q = `
+        INSERT INTO events
+            (slug, category_id, title, description,
+             place_id, starts_at, ends_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING id, created_at`
+	return r.db.QueryRow(ctx, q,
+		ev.Slug, ev.CategoryID, ev.Title, ev.Description,
+		ev.PlaceID, ev.StartsAt, ev.EndsAt,
+	).Scan(&ev.ID, &ev.CreatedAt)
+}
 
 func (r *EventRepository) ListActive(ctx context.Context, limit, offset int) ([]domain.Event, error) {
 	rows, err := r.db.Query(ctx, listActiveSQL, limit, offset)

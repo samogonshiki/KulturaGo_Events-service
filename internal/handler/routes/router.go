@@ -18,6 +18,8 @@ func NewRoutes(event *handlerhttp.EventHandler) chi.Router {
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Get("/events", event.ListActive)
 		api.Get("/events/{slug}", event.GetBySlug)
+
+		api.Post("/events", event.Create)
 	})
 
 	return r

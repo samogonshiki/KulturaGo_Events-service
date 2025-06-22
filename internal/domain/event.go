@@ -23,4 +23,5 @@ type EventRepo interface {
 	GetBySlug(ctx context.Context, slug string) (Event, error)
 	DeactivatePast(ctx context.Context) (int64, error)
 	IterChangedSince(ctx context.Context, lastTS time.Time, batch int) ([]Event, error)
+	Create(ctx context.Context, ev *Event) error
 }
