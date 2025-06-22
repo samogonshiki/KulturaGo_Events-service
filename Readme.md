@@ -91,6 +91,7 @@ make migrate-up
 make migrate-down
 ```
 
+
 - выполнить миграции в контейнере stage/prod
 ```shell
 GOOSE_ENV=production DATABASE_URL="postgres://user:pass@postgres:5432/prod?sslmode=disable" \
