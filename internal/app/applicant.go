@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	handlerhttp "kulturaGo/events-service/internal/handler/http"
+	"kulturaGo/events-service/internal/domain"
+	handlerhttp "kulturaGo/events-service/internal/handler"
 	rt "kulturaGo/events-service/internal/handler/routes"
 	"kulturaGo/events-service/internal/kafka"
 	lg "kulturaGo/events-service/internal/logger"
@@ -39,7 +40,7 @@ func Run() {
 	prod := kafka.New(kafkaBrokers, kafkaTopic)
 	defer prod.Close()
 
-	repo := postgres.NewEventRepository(db)
+	var repo domain.EventRepo = postgres.NewEventRepository(db)
 	cursorRepo := postgres.NewCursorRepository(db)
 
 	handler := handlerhttp.NewEventHandler(repo)

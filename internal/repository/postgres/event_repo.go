@@ -2,8 +2,9 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"kulturaGo/events-service/internal/domain"
+	"kulturaGo/events-service/internal/dto"
 	"kulturaGo/events-service/internal/slugger"
 	"time"
 )
@@ -12,95 +13,117 @@ type EventRepository struct {
 	db *pgxpool.Pool
 }
 
-func NewEventRepository(db *pgxpool.Pool) *EventRepository { return &EventRepository{db: db} }
-
-const listActiveSQL = `
-SELECT id, slug, category_id, title, description, place_id,
-       starts_at, ends_at, is_active, created_at
-FROM events
-WHERE is_active = true
-  AND ends_at >= NOW()
-ORDER BY starts_at
-LIMIT $1 OFFSET $2
-`
-
-func (r *EventRepository) Create(ctx context.Context, ev *domain.Event) error {
-	s, err := slugger.Generate(ctx, r.db, ev.Title)
-	if err != nil {
-		return err
-	}
-	ev.Slug = s
-
-	const q = `
-        INSERT INTO events
-            (slug, category_id, title, description,
-             place_id, starts_at, ends_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
-        RETURNING id, created_at`
-	return r.db.QueryRow(ctx, q,
-		ev.Slug, ev.CategoryID, ev.Title, ev.Description,
-		ev.PlaceID, ev.StartsAt, ev.EndsAt,
-	).Scan(&ev.ID, &ev.CreatedAt)
+func NewEventRepository(db *pgxpool.Pool) *EventRepository {
+	return &EventRepository{db: db}
 }
 
-func (r *EventRepository) ListActive(ctx context.Context, limit, offset int) ([]domain.Event, error) {
-	rows, err := r.db.Query(ctx, listActiveSQL, limit, offset)
+func (r *EventRepository) Create(ctx context.Context, in dto.CreateEventInput) (dto.PublicEvent, error) {
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return nil, err
+		return dto.PublicEvent{}, err
 	}
-	defer rows.Close()
+	defer tx.Rollback(ctx)
 
-	var res []domain.Event
-	for rows.Next() {
-		var ev domain.Event
-		if err = rows.Scan(&ev.ID, &ev.Slug, &ev.CategoryID, &ev.Title, &ev.Description,
-			&ev.PlaceID, &ev.StartsAt, &ev.EndsAt, &ev.IsActive, &ev.CreatedAt); err != nil {
-			return nil, err
+	var categoryID int64
+	if err := tx.QueryRow(ctx, `
+        INSERT INTO event_categories (slug, name)
+        VALUES ($1, $2)
+        ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+    `, in.Category.Slug, in.Category.Name).Scan(&categoryID); err != nil {
+		return dto.PublicEvent{}, fmt.Errorf("upsert category: %w", err)
+	}
+
+	var placeID int64
+	if err := tx.QueryRow(ctx, `
+        INSERT INTO places (
+          title, country, region, city, street,
+          house_num, postal_code, latitude, longitude
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        RETURNING id
+    `,
+		in.Place.Address, "", "", "", "", "", "", in.Place.Latitude, in.Place.Longitude,
+	).Scan(&placeID); err != nil {
+		return dto.PublicEvent{}, fmt.Errorf("insert place: %w", err)
+	}
+
+	slug, err := slugger.Generate(ctx, r.db, in.Title)
+	if err != nil {
+		return dto.PublicEvent{}, fmt.Errorf("generate slug: %w", err)
+	}
+
+	startsAt := time.Time(in.StartsAt)
+	endsAt := time.Time(in.EndsAt)
+
+	var eventID int64
+	var createdAt time.Time
+	if err := tx.QueryRow(ctx, `
+        INSERT INTO events (
+          slug, category_id, title, description,
+          place_id, starts_at, ends_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        RETURNING id, created_at
+    `,
+		slug,
+		categoryID,
+		in.Title,
+		in.Description,
+		placeID,
+		startsAt,
+		endsAt,
+	).Scan(&eventID, &createdAt); err != nil {
+		return dto.PublicEvent{}, fmt.Errorf("insert event: %w", err)
+	}
+
+	for idx, p := range in.People {
+		var tagID int64
+		if err := tx.QueryRow(ctx, `
+            INSERT INTO tags (slug, name)
+            VALUES ($1, $2)
+            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+        `, p.Tag.Slug, p.Tag.Name).Scan(&tagID); err != nil {
+			return dto.PublicEvent{}, fmt.Errorf("upsert tag: %w", err)
 		}
-		res = append(res, ev)
-	}
-	return res, rows.Err()
-}
 
-func (r *EventRepository) GetBySlug(ctx context.Context, slug string) (domain.Event, error) {
-	const q = `SELECT id, slug, category_id, title, description, place_id,
-		         starts_at, ends_at, is_active, created_at
-		       FROM events WHERE slug = $1`
-	var ev domain.Event
-	err := r.db.QueryRow(ctx, q, slug).Scan(&ev.ID, &ev.Slug, &ev.CategoryID, &ev.Title,
-		&ev.Description, &ev.PlaceID, &ev.StartsAt, &ev.EndsAt, &ev.IsActive, &ev.CreatedAt)
-	return ev, err
-}
-
-func (r *EventRepository) DeactivatePast(ctx context.Context) (int64, error) {
-	cmd, err := r.db.Exec(ctx,
-		`UPDATE events SET is_active = false
-		  WHERE is_active = true AND ends_at < NOW()`)
-	return cmd.RowsAffected(), err
-}
-
-func (r *EventRepository) IterChangedSince(ctx context.Context, ts time.Time, batch int) ([]domain.Event, error) {
-	const q = `
-SELECT id, slug, category_id, title, description, place_id,
-       starts_at, ends_at, is_active, created_at
-FROM events
-WHERE created_at > $1 OR updated_at > $1
-ORDER BY created_at
-LIMIT $2`
-	rows, err := r.db.Query(ctx, q, ts, batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var res []domain.Event
-	for rows.Next() {
-		var ev domain.Event
-		if err = rows.Scan(&ev.ID, &ev.Slug, &ev.CategoryID, &ev.Title,
-			&ev.Description, &ev.PlaceID, &ev.StartsAt, &ev.EndsAt,
-			&ev.IsActive, &ev.CreatedAt); err != nil {
-			return nil, err
+		var personID int64
+		if err := tx.QueryRow(ctx, `
+            INSERT INTO persons (slug, name, description, photo)
+            VALUES ($1, $2, '', '')
+            ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+        `, p.Slug, p.Name).Scan(&personID); err != nil {
+			return dto.PublicEvent{}, fmt.Errorf("upsert person: %w", err)
 		}
-		res = append(res, ev)
+
+		if _, err := tx.Exec(ctx, `
+            INSERT INTO event_people (event_id, person_id, tag_id, sort_order)
+            VALUES ($1,$2,$3,$4)
+        `, eventID, personID, tagID, idx); err != nil {
+			return dto.PublicEvent{}, fmt.Errorf("insert event_person: %w", err)
+		}
 	}
-	return res, rows.Err()
+
+	for _, ph := range in.Photos {
+		if _, err := tx.Exec(ctx, `
+            INSERT INTO event_photos (event_id, url, alt_text, is_main)
+            VALUES ($1,$2,$3,$4)
+        `, eventID, ph.URL, ph.AltText, ph.IsMain); err != nil {
+			return dto.PublicEvent{}, fmt.Errorf("insert photo: %w", err)
+		}
+	}
+	for _, li := range in.LegalInfo {
+		if _, err := tx.Exec(ctx, `
+            INSERT INTO legal_information (event_id, info_key, info_text)
+            VALUES ($1,$2,$3)
+        `, eventID, li.Key, li.Text); err != nil {
+			return dto.PublicEvent{}, fmt.Errorf("insert legal_info: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return dto.PublicEvent{}, err
+	}
+
+	return r.GetPublicBySlug(ctx, slug)
 }
