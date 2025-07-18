@@ -1,9 +1,6 @@
-# KulturaGo_Events-service
+# **KulturaGo_Events-service**
 
 ![intro](src/intro-event.png)
-
-
-## Архитектурная диаграмма
 
 ```mermaid
 flowchart LR
@@ -21,11 +18,11 @@ flowchart LR
 >[!NOTE]
 >## REST-API
 >
->| Method | Path                                 | Description                                  | Request Body (JSON)          | Response Code  |
->|:------:|:-------------------------------------|:---------------------------------------------|:-----------------------------|:---------------|
->| GET    | `/api/v1/events?limit={limit}&offset={offset}` | Список активных событий (постранично)       | —                             | `200 OK`       |
->| GET    | `/api/v1/events/{slug}`              | Детали события по его `slug`                | —                             | `200 OK`       |
->| POST   | `/api/v1/events`                     | Создать новый объект события                | `CreateEventInput` (см. выше) | `201 Created`  |
+>| Method | Path                                           | Description                           | Request Body (JSON)           | Response Code |
+>|:------:|:-----------------------------------------------|:--------------------------------------|:------------------------------|:--------------|
+>|  GET   | `/api/v1/events?limit={limit}&offset={offset}` | Список активных событий (постранично) | —                             | `200 OK`      |
+>|  GET   | `/api/v1/events/{slug}`                        | Детали события по его `slug`          | —                             | `200 OK`      |
+>|  POST  | `/api/v1/events`                               | Создать новый объект события          | `CreateEventInput` (см. выше) | `201 Created` |
 >
 >
 
@@ -180,23 +177,33 @@ flowchart LR
 > 
 
 
+>[!IMPORTANT]
+> ## Запуск сервиса
+> 
+> **Docker**
+> 
+> ```shell
+> make dc-up
+> ```
+> данная команда поднимает докер-контейнер и берет зависимости из .env
+> 
+> ```shell
+> make dc-dw
+> ```
+> данная команда дропает докер-контейнер и удаляет кэш кафки
+> 
+> **Миграция**
+> 
+> ```shell
+> make migrat
+> ```
+> запускает миграцию sql-скриптов в DB
+> 
+> **Git clone**
+> 
+> ```shell
+> git clone https://github.com/samogonshiki/KulturaGo_Events-service.git
+> ```
 
-## Команды для makefile
-
-- локально (development)
-```shell
-make migrate-up
-```
-- откатить на один шаг
-```shell
-make migrate-down
-```
-
-
-- выполнить миграции в контейнере stage/prod
-```shell
-GOOSE_ENV=production DATABASE_URL="postgres://user:pass@postgres:5432/prod?sslmode=disable" \
-make migrate-up
-```
-
+---
 **by Finnik**
